@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import Image from 'next/image';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase/client';
 import type { Book } from '@/lib/types';
@@ -12,6 +13,8 @@ export default function EditBookPage() {
   const bookId = params.id as string;
   const [book, setBook] = useState<Book | null>(null);
   const [saving, setSaving] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [form, setForm] = useState({
     title_en: '',
     title_vi: '',
@@ -19,6 +22,7 @@ export default function EditBookPage() {
     age_min: 2,
     age_max: 4,
     is_published: false,
+    cover_image_url: null as string | null,
   });
 
   useEffect(() => {
@@ -33,19 +37,56 @@ export default function EditBookPage() {
           age_min: data.age_min,
           age_max: data.age_max,
           is_published: data.is_published,
+          cover_image_url: data.cover_image_url,
         });
+        setCoverPreview(data.cover_image_url);
       }
     }
     load();
   }, [bookId]);
 
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingCover(true);
+
+    const resized = await resizeImage(file, 800);
+    const filePath = `${bookId}/cover-${Date.now()}.jpg`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('book-pages')
+      .upload(filePath, resized, { contentType: 'image/jpeg' });
+
+    if (uploadError) {
+      alert('Cover upload failed: ' + uploadError.message);
+      setUploadingCover(false);
+      return;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('book-pages')
+      .getPublicUrl(filePath);
+
+    await supabase.from('books').update({ cover_image_url: publicUrl }).eq('id', bookId);
+    setForm(f => ({ ...f, cover_image_url: publicUrl }));
+    setCoverPreview(publicUrl);
+    setUploadingCover(false);
+  };
+
+  const removeCover = async () => {
+    await supabase.from('books').update({ cover_image_url: null }).eq('id', bookId);
+    setForm(f => ({ ...f, cover_image_url: null }));
+    setCoverPreview(null);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
 
+    const { cover_image_url: _cover, ...updateData } = form;
     const { error } = await supabase
       .from('books')
-      .update(form)
+      .update(updateData)
       .eq('id', bookId);
 
     if (error) {
@@ -79,6 +120,46 @@ export default function EditBookPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-xl p-6 shadow-sm space-y-5">
+        {/* Cover Image */}
+        <div>
+          <label className="block text-sm font-bold text-gray-700 mb-2">Cover Image</label>
+          <div className="flex items-start gap-4">
+            <div className="w-32 shrink-0">
+              {coverPreview ? (
+                <div className="relative aspect-[3/4] rounded-lg overflow-hidden bg-gray-100">
+                  <Image src={coverPreview} alt="Cover" fill className="object-cover" sizes="128px" />
+                </div>
+              ) : (
+                <div className="aspect-[3/4] rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 text-3xl">
+                  📖
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col gap-2 pt-2">
+              <label className="inline-flex items-center gap-2 bg-[#FF6B35] text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-orange-600 cursor-pointer transition-colors">
+                {uploadingCover ? 'Uploading...' : '📷 Upload Cover'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleCoverUpload}
+                  disabled={uploadingCover}
+                  className="hidden"
+                />
+              </label>
+              {coverPreview && (
+                <button
+                  type="button"
+                  onClick={removeCover}
+                  className="text-xs text-red-400 hover:text-red-600 font-semibold text-left"
+                >
+                  Remove cover
+                </button>
+              )}
+              <p className="text-xs text-gray-400">Recommended: 3:4 ratio (e.g. 600x800px)</p>
+            </div>
+          </div>
+        </div>
+
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-1">English Title</label>
           <input
@@ -173,4 +254,29 @@ export default function EditBookPage() {
       </form>
     </div>
   );
+}
+
+function resizeImage(file: File, maxWidth: number): Promise<Blob> {
+  return new Promise((resolve) => {
+    const img = document.createElement('img');
+    const canvas = document.createElement('canvas');
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.85);
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
 }

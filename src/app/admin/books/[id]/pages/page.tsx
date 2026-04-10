@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { supabase } from '@/lib/supabase/client';
+import { AudioRecorder } from '@/components/admin/AudioRecorder';
 import type { Book, Page } from '@/lib/types';
 
 export default function ManagePagesPage() {
@@ -28,8 +29,6 @@ export default function ManagePagesPage() {
 
   const handleImageUpload = async (pageId: string, pageNumber: number, file: File) => {
     setUploading(true);
-
-    // Resize image client-side
     const resized = await resizeImage(file, 1200);
     const filePath = `${bookId}/page-${pageNumber}-${Date.now()}.jpg`;
 
@@ -59,6 +58,50 @@ export default function ManagePagesPage() {
       vietnamese_text: vietnameseText,
     }).eq('id', pageId);
     setSavingPageId(null);
+  };
+
+  const handleAudioSave = async (pageId: string, lang: 'en' | 'vi', blob: Blob) => {
+    const ext = blob.type.includes('webm') ? 'webm' : 'mp3';
+    const filePath = `${bookId}/audio-${lang}-${pageId}-${Date.now()}.${ext}`;
+
+    const { error } = await supabase.storage
+      .from('book-pages')
+      .upload(filePath, blob, { contentType: blob.type });
+
+    if (error) {
+      alert('Audio upload failed: ' + error.message);
+      return;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('book-pages')
+      .getPublicUrl(filePath);
+
+    const field = lang === 'en' ? 'audio_en_url' : 'audio_vi_url';
+    await supabase.from('pages').update({ [field]: publicUrl }).eq('id', pageId);
+    await loadData();
+  };
+
+  const handleAudioFileUpload = async (pageId: string, lang: 'en' | 'vi', file: File) => {
+    const ext = file.name.split('.').pop() || 'mp3';
+    const filePath = `${bookId}/audio-${lang}-${pageId}-${Date.now()}.${ext}`;
+
+    const { error } = await supabase.storage
+      .from('book-pages')
+      .upload(filePath, file, { contentType: file.type });
+
+    if (error) {
+      alert('Audio upload failed: ' + error.message);
+      return;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('book-pages')
+      .getPublicUrl(filePath);
+
+    const field = lang === 'en' ? 'audio_en_url' : 'audio_vi_url';
+    await supabase.from('pages').update({ [field]: publicUrl }).eq('id', pageId);
+    await loadData();
   };
 
   const addNewPage = async () => {
@@ -111,10 +154,13 @@ export default function ManagePagesPage() {
             <PageEditor
               key={page.id}
               page={page}
+              bookId={bookId}
               uploading={uploading}
               saving={savingPageId === page.id}
               onImageUpload={(file) => handleImageUpload(page.id, page.page_number, file)}
               onTextSave={(en, vi) => handleTextSave(page.id, en, vi)}
+              onAudioSave={(lang, blob) => handleAudioSave(page.id, lang, blob)}
+              onAudioFileUpload={(lang, file) => handleAudioFileUpload(page.id, lang, file)}
               onDelete={() => deletePage(page.id)}
             />
           ))}
@@ -180,17 +226,23 @@ export default function ManagePagesPage() {
 // Page Editor Component
 function PageEditor({
   page,
+  bookId,
   uploading,
   saving,
   onImageUpload,
   onTextSave,
+  onAudioSave,
+  onAudioFileUpload,
   onDelete,
 }: {
   page: Page;
+  bookId: string;
   uploading: boolean;
   saving: boolean;
   onImageUpload: (file: File) => void;
   onTextSave: (en: string, vi: string) => void;
+  onAudioSave: (lang: 'en' | 'vi', blob: Blob) => Promise<void>;
+  onAudioFileUpload: (lang: 'en' | 'vi', file: File) => Promise<void>;
   onDelete: () => void;
 }) {
   const [en, setEn] = useState(page.english_text);
@@ -229,7 +281,7 @@ function PageEditor({
           />
         </div>
 
-        {/* Text Section */}
+        {/* Text + Audio Section */}
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-1">English Text</label>
@@ -241,6 +293,16 @@ function PageEditor({
               placeholder="Enter English text for this page..."
             />
           </div>
+
+          {/* English Audio */}
+          <AudioRecorder
+            label="English Audio"
+            currentUrl={page.audio_en_url}
+            onSave={(blob) => onAudioSave('en', blob)}
+            onUpload={(file) => onAudioFileUpload('en', file)}
+            accentColor="#FF6B35"
+          />
+
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-1">Vietnamese Text</label>
             <textarea
@@ -251,6 +313,16 @@ function PageEditor({
               placeholder="Nhập văn bản tiếng Việt cho trang này..."
             />
           </div>
+
+          {/* Vietnamese Audio */}
+          <AudioRecorder
+            label="Vietnamese Audio"
+            currentUrl={page.audio_vi_url}
+            onSave={(blob) => onAudioSave('vi', blob)}
+            onUpload={(file) => onAudioFileUpload('vi', file)}
+            accentColor="#4ECDC4"
+          />
+
           <button
             onClick={() => onTextSave(en, vi)}
             disabled={saving}
