@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# scripts data (PDFs and extracted images)
+scripts/pdfs/
+scripts/pages/
