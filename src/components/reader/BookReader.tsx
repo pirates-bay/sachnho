@@ -21,8 +21,10 @@ export function BookReader({ bookTitle, pages }: BookReaderProps) {
   const [readMode, setReadMode] = useState<ReadMode>('page');
   const [isFullBookPlaying, setIsFullBookPlaying] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [showOverlayNav, setShowOverlayNav] = useState(false);
   const currentIndexRef = useRef(0);
   const imageLoadResolveRef = useRef<(() => void) | null>(null);
+  const overlayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const { speakingState, speakEnglish, speakVietnamese, speakBoth, startFullBookReading, stop, stoppedRef } = useTTS();
 
   const page = pages[currentIndex];
@@ -157,6 +159,23 @@ export function BookReader({ bookTitle, pages }: BookReaderProps) {
     }
   }, [readMode, handleFullBookRead, handlePageBoth]);
 
+  // Tap on image area to reveal nav arrows on mobile (auto-hide after 2.5s)
+  const handleImageTap = useCallback(() => {
+    if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
+    setShowOverlayNav(true);
+    overlayTimerRef.current = setTimeout(() => setShowOverlayNav(false), 2500);
+  }, []);
+
+  // Hide overlay arrows when page changes
+  useEffect(() => {
+    setShowOverlayNav(false);
+    if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
+  }, [currentIndex]);
+
+  useEffect(() => {
+    return () => { if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current); };
+  }, []);
+
   const swipeHandlers = useSwipe({ onSwipeLeft: goNext, onSwipeRight: goPrev });
 
   if (showCelebration) {
@@ -220,7 +239,10 @@ export function BookReader({ bookTitle, pages }: BookReaderProps) {
             transition={{ duration: 0.3 }}
           >
             {/* Page Image */}
-            <div className="bg-white rounded-2xl overflow-hidden shadow-lg mb-5 relative">
+            <div
+              className="group bg-white rounded-2xl overflow-hidden shadow-lg mb-5 relative"
+              onClick={handleImageTap}
+            >
               <div className="relative aspect-[4/3]">
                 {page.image_url ? (
                   <Image
@@ -243,8 +265,42 @@ export function BookReader({ bookTitle, pages }: BookReaderProps) {
                     <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin" />
                   </div>
                 )}
+
+                {/* Subtle overlay nav arrows — visible on hover (desktop) or tap (mobile) */}
+                {!isFullBookPlaying && (
+                  <>
+                    {currentIndex > 0 && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); goPrev(); }}
+                        aria-label="Previous page"
+                        className={`absolute left-0 top-0 bottom-0 w-1/4 flex items-center justify-start pl-2 sm:pl-3
+                          transition-opacity duration-200 cursor-pointer z-10
+                          group-hover:opacity-100 focus:opacity-100
+                          ${showOverlayNav ? 'opacity-100' : 'opacity-0'}`}
+                      >
+                        <span className="bg-black/30 backdrop-blur-sm text-white rounded-full w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center text-lg font-bold shadow-lg">
+                          ‹
+                        </span>
+                      </button>
+                    )}
+                    {currentIndex < total - 1 && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); goNext(); }}
+                        aria-label="Next page"
+                        className={`absolute right-0 top-0 bottom-0 w-1/4 flex items-center justify-end pr-2 sm:pr-3
+                          transition-opacity duration-200 cursor-pointer z-10
+                          group-hover:opacity-100 focus:opacity-100
+                          ${showOverlayNav ? 'opacity-100' : 'opacity-0'}`}
+                      >
+                        <span className="bg-black/30 backdrop-blur-sm text-white rounded-full w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center text-lg font-bold shadow-lg">
+                          ›
+                        </span>
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
-              <div className="absolute top-4 right-4 bg-black/60 text-white px-3.5 py-1.5 rounded-full text-sm font-bold">
+              <div className="absolute top-4 right-4 bg-black/60 text-white px-3.5 py-1.5 rounded-full text-sm font-bold z-20">
                 {currentIndex + 1} / {total}
               </div>
             </div>
