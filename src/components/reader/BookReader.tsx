@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,17 +20,61 @@ export function BookReader({ bookTitle, pages }: BookReaderProps) {
   const [showCelebration, setShowCelebration] = useState(false);
   const [readMode, setReadMode] = useState<ReadMode>('page');
   const [isFullBookPlaying, setIsFullBookPlaying] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const currentIndexRef = useRef(0);
+  const imageLoadResolveRef = useRef<(() => void) | null>(null);
   const { speakingState, speakEnglish, speakVietnamese, speakBoth, startFullBookReading, stop, stoppedRef } = useTTS();
 
   const page = pages[currentIndex];
   const total = pages.length;
   const progress = ((currentIndex + 1) / total) * 100;
 
+  // Preload upcoming images (next 3 pages)
+  useEffect(() => {
+    const preloadCount = 3;
+    for (let i = 1; i <= preloadCount; i++) {
+      const nextIdx = currentIndex + i;
+      if (nextIdx < pages.length && pages[nextIdx].image_url) {
+        const img = new window.Image();
+        img.src = pages[nextIdx].image_url;
+      }
+    }
+  }, [currentIndex, pages]);
+
   const setPage = useCallback((index: number) => {
+    setImageLoaded(false);
     setCurrentIndex(index);
     currentIndexRef.current = index;
   }, []);
+
+  // Called when the current page image finishes loading
+  const handleImageLoad = useCallback(() => {
+    setImageLoaded(true);
+    // If full-book reading is waiting for this image, resolve the promise
+    if (imageLoadResolveRef.current) {
+      imageLoadResolveRef.current();
+      imageLoadResolveRef.current = null;
+    }
+  }, []);
+
+  // Returns a promise that resolves when the current image is loaded
+  const waitForImageLoad = useCallback((): Promise<void> => {
+    // If no image or already loaded, resolve immediately
+    const currentPage = pages[currentIndexRef.current];
+    if (!currentPage?.image_url || imageLoaded) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      imageLoadResolveRef.current = resolve;
+      // Safety timeout: don't wait more than 5 seconds
+      setTimeout(() => {
+        if (imageLoadResolveRef.current === resolve) {
+          imageLoadResolveRef.current = null;
+          resolve();
+        }
+      }, 5000);
+    });
+  }, [pages, imageLoaded]);
 
   const goNext = useCallback(() => {
     stop();
@@ -52,6 +96,11 @@ export function BookReader({ bookTitle, pages }: BookReaderProps) {
   const stopAll = useCallback(() => {
     stop();
     setIsFullBookPlaying(false);
+    // Clear any pending image wait
+    if (imageLoadResolveRef.current) {
+      imageLoadResolveRef.current();
+      imageLoadResolveRef.current = null;
+    }
   }, [stop]);
 
   // Page-mode handlers
@@ -73,7 +122,7 @@ export function BookReader({ bookTitle, pages }: BookReaderProps) {
     try {
       await startFullBookReading(pages, currentIndexRef.current, mode, (index) => {
         setPage(index);
-      });
+      }, waitForImageLoad);
       // Finished all pages
       if (!stoppedRef.current) {
         setShowCelebration(true);
@@ -82,7 +131,7 @@ export function BookReader({ bookTitle, pages }: BookReaderProps) {
     } finally {
       setIsFullBookPlaying(false);
     }
-  }, [startFullBookReading, pages, setPage, stoppedRef]);
+  }, [startFullBookReading, pages, setPage, stoppedRef, waitForImageLoad]);
 
   const handleEnglish = useCallback(() => {
     if (readMode === 'book') {
@@ -178,13 +227,20 @@ export function BookReader({ bookTitle, pages }: BookReaderProps) {
                     src={page.image_url}
                     alt={`Page ${page.page_number}`}
                     fill
-                    className="object-contain"
+                    className={`object-contain transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
                     sizes="(max-width: 800px) 100vw, 800px"
                     priority
+                    onLoad={handleImageLoad}
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 text-blue-400 text-xl font-bold">
                     Page {page.page_number}
+                  </div>
+                )}
+                {/* Loading spinner while image loads */}
+                {page.image_url && !imageLoaded && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100">
+                    <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin" />
                   </div>
                 )}
               </div>

@@ -135,6 +135,7 @@ export function useTTS() {
     startIndex: number,
     mode: 'english' | 'vietnamese' | 'both',
     onPageChange: (index: number) => void,
+    waitForImageLoad?: () => Promise<void>,
   ) => {
     stop();
     stoppedRef.current = false;
@@ -143,13 +144,28 @@ export function useTTS() {
       if (stoppedRef.current) return;
       onPageChange(i);
 
-      // Small delay for page transition animation
+      // Wait for page transition animation
       await new Promise<void>((resolve) => {
         timeoutRef.current = setTimeout(resolve, 400);
       });
       if (stoppedRef.current) return;
 
+      // Wait for the page image to load before speaking
+      if (waitForImageLoad) {
+        await waitForImageLoad();
+      }
+      if (stoppedRef.current) return;
+
       const p = pages[i];
+
+      // Skip pages with no text (title/credit pages) — just show briefly
+      if (!p.english_text && !p.vietnamese_text) {
+        await new Promise<void>((resolve) => {
+          timeoutRef.current = setTimeout(resolve, 1500);
+        });
+        continue;
+      }
+
       await speakPage(p.english_text, p.vietnamese_text, mode, {
         audio_en_url: p.audio_en_url,
         audio_vi_url: p.audio_vi_url,
