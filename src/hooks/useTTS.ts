@@ -172,9 +172,9 @@ export function useTTS() {
       });
       if (stoppedRef.current) return;
 
-      // Pause between pages
+      // Pause between pages — give kids time to look at the picture
       await new Promise<void>((resolve) => {
-        timeoutRef.current = setTimeout(resolve, 800);
+        timeoutRef.current = setTimeout(resolve, TTS_CONFIG.pauseBetweenPages);
       });
     }
   }, [stop, speakPage]);

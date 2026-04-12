@@ -18,7 +18,8 @@ export const AGE_GROUPS = [
 ] as const;
 
 export const TTS_CONFIG = {
-  en: { lang: 'en-US', rate: 0.85, pitch: 1.1 },
-  vi: { lang: 'vi-VN', rate: 0.8, pitch: 1.1 },
-  pauseBetween: 1000,
+  en: { lang: 'en-US', rate: 0.65, pitch: 1.1 },
+  vi: { lang: 'vi-VN', rate: 0.7, pitch: 1.1 },
+  pauseBetween: 1800,
+  pauseBetweenPages: 1400,
 } as const;
